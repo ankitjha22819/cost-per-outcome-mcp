@@ -1,0 +1,8 @@
+{"ts":"2026-09-01T00:00:00Z","request_id":"r1","feature":"summarize","model":"model-large","input_tokens":1000,"output_tokens":100,"status":"timeout","attempt":1,"cost_usd":1}
+{"ts":"2026-09-01T00:01:00Z","request_id":"r1","feature":"summarize","model":"model-large","input_tokens":1000,"output_tokens":100,"status":"ok","attempt":2,"outcome":"success","cost_usd":1}
+{"ts":"2026-09-05T00:00:00Z","request_id":"r2","feature":"summarize","model":"model-large","input_tokens":2000,"output_tokens":100,"status":"ok","outcome":"success","cost_usd":2}
+{"ts":"2026-09-08T00:00:00Z","request_id":"r3","feature":"summarize","model":"model-large","input_tokens":1000,"output_tokens":100,"status":"ok","outcome":"failure","cost_usd":1}
+{"ts":"2026-09-10T00:00:00Z","request_id":"r4","feature":"summarize","model":"model-large","input_tokens":500,"output_tokens":50,"status":"error","cost_usd":0.5}
+{"ts":"2026-09-10T00:00:30Z","request_id":"r4","feature":"summarize","model":"model-large","input_tokens":500,"output_tokens":50,"status":"error","cost_usd":0.5}
+{"ts":"2026-09-12T00:00:00Z","request_id":"c1","feature":"classify","model":"model-large","input_tokens":1000000,"output_tokens":100000,"status":"ok","outcome":"success","latency_ms":2310}
+{"ts":"2026-09-16T00:00:00Z","request_id":"c2","feature":"classify","model":"model-mystery","input_tokens":10,"output_tokens":1,"status":"ok","outcome":"success"}

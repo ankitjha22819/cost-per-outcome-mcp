@@ -1,0 +1,4 @@
+ts,request_id,feature,model,input_tokens,output_tokens,cached_input_tokens,attempt,status,outcome,retrieval_cost_usd,cost_usd,latency_ms
+2026-09-14T10:02:11Z,r_8812,summarize,model-large,6120,410,,1,timeout,,,,30000
+2026-09-14T10:02:44Z,r_8812,summarize,model-large,6120,388,,2,ok,success,0.0004,,1840
+2026-09-14T10:03:00Z,r_9000,summarize,model-large,abc,388,,1,ok,success,,,
