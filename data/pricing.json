@@ -1,0 +1,8 @@
+{
+  "as_of": "2026-10-01",
+  "models": {
+    "model-large": { "input": 3.0, "cached_input": 0.3, "output": 15.0 },
+    "model-medium": { "input": 0.8, "cached_input": 0.08, "output": 4.0 },
+    "model-small": { "input": 0.25, "cached_input": 0.03, "output": 1.25 }
+  }
+}
