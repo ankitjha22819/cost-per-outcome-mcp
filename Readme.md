@@ -11,8 +11,14 @@ A small, read-only MCP server. Point it at a JSONL or CSV export of your LLM cal
 ![Claude Desktop answering "what does a successful summary cost us?"](docs/demo.gif)
 
 ```bash
+# No data yet? Run it on the bundled synthetic sample:
+npx -y cost-per-outcome-mcp
+
+# Your own export (any .jsonl or .csv in the trace schema below):
 npx -y cost-per-outcome-mcp --trace ./traces.jsonl
 ```
+
+The server speaks MCP over stdio, so on its own it just waits for a client. Add it to Claude Desktop or Cursor (see [Install](#install)), or poke at it with `npx @modelcontextprotocol/inspector npx -y cost-per-outcome-mcp`.
 
 ---
 
