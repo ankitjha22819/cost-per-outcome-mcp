@@ -67,6 +67,39 @@ It estimates **cost only**. It does not know if the cheaper model is good enough
 
 ---
 
+## How it works
+
+The trace and pricing files are read **once at startup**. After that, every question is answered from memory.
+
+```mermaid
+flowchart TD
+    subgraph startup["At startup (once)"]
+        T[("traces.jsonl / .csv")] --> L["Load + validate rows<br/>(invalid rows skipped and counted)"]
+        P[("pricing.json")] --> PR["Price each call<br/>(tokens, cache, retrieval)"]
+        L --> PR
+        PR --> A["Number attempts per request_id"]
+        A --> D[("In-memory dataset")]
+    end
+
+    subgraph question["Per question"]
+        U(["You ask Claude Desktop / Cursor<br/>'What does a successful summary cost us?'"]) --> C["Client picks a tool and sends filters<br/>feature, model, from, to"]
+        C --> F["Filter calls"]
+        D --> F
+        F --> G["Group calls into requests"]
+        G --> O{"outcome present<br/>on final attempt?"}
+        O -- yes --> S["Success = outcome is success"]
+        O -- no --> I["Success = final status is ok<br/>(report says it was inferred)"]
+        S --> M["Compute the tool's result<br/>cost_per_outcome / cost_by_feature /<br/>top_expensive_calls / model_swap_whatif"]
+        I --> M
+        M --> R["Plain-text report"]
+        R --> Z(["Client answers you in plain English"])
+    end
+```
+
+Nothing is written to disk and nothing goes over the network. The only output is the text report sent back to your MCP client over stdio.
+
+---
+
 ## Install
 
 ### Claude Desktop
