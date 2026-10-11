@@ -90,32 +90,61 @@ It estimates **cost only**. It does not know if the cheaper model is good enough
 
 The trace and pricing files are read **once at startup**. After that, every question is answered from memory.
 
-```mermaid
-flowchart TD
-    subgraph startup["At startup (once)"]
-        T[("traces.jsonl / .csv")] --> L["Load + validate rows<br/>(invalid rows skipped and counted)"]
-        P[("pricing.json")] --> PR["Price each call<br/>(tokens, cache, retrieval)"]
-        L --> PR
-        PR --> A["Number attempts per request_id"]
-        A --> D[("In-memory dataset")]
-    end
+### ① At startup (once)
 
-    subgraph question["Per question"]
-        U(["You ask Claude Desktop / Cursor<br/>'What does a successful summary cost us?'"]) --> C["Client picks a tool and sends filters<br/>feature, model, from, to"]
-        C --> F["Filter calls"]
-        D --> F
-        F --> G["Group calls into requests"]
-        G --> O{"outcome present<br/>on final attempt?"}
-        O -- yes --> S["Success = outcome is success"]
-        O -- no --> I["Success = final status is ok<br/>(report says it was inferred)"]
-        S --> M["Compute the tool's result<br/>cost_per_outcome / cost_by_feature /<br/>top_expensive_calls / model_swap_whatif"]
-        I --> M
-        M --> R["Plain-text report"]
-        R --> Z(["Client answers you in plain English"])
-    end
+```mermaid
+flowchart LR
+    classDef input fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef step fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    classDef warn fill:#fffbeb,stroke:#f59e0b,color:#78350f
+    classDef stop fill:#fef2f2,stroke:#ef4444,color:#7f1d1d
+
+    T[("Trace<br/>.jsonl / .csv")]:::input --> L["Load + validate<br/>each row"]:::step
+    L -- "no valid rows, unreadable<br/>file, or malformed CSV" --> X(["Exit 1<br/>one-line error"]):::stop
+    L -. "invalid rows" .-> SK["Skipped and counted<br/>first error kept"]:::warn
+    L --> PR["Price each call<br/>tokens · cache · retrieval<br/>cost_usd overrides tokens"]:::step
+    P[("pricing.json<br/>USD per 1M tokens")]:::input --> PR
+    PR -. "model not in table" .-> UN["Flagged unpriced<br/>never silently zero"]:::warn
+    PR --> A["Number attempts<br/>per request_id"]:::step
+    A --> D[("In-memory<br/>dataset")]:::step
 ```
 
-Nothing is written to disk and nothing goes over the network. The only output is the text report sent back to your MCP client over stdio.
+Config comes from flags first, then env vars, then defaults (see [Configuration](#configuration)).
+
+### ② For every question
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360, "nodeSpacing": 30, "rankSpacing": 40}}}%%
+flowchart TD
+    classDef input fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef step fill:#f8fafc,stroke:#94a3b8,color:#0f172a
+    classDef tool fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef warn fill:#fffbeb,stroke:#f59e0b,color:#78350f
+    classDef stop fill:#fef2f2,stroke:#ef4444,color:#7f1d1d
+
+    U(["You ask Claude Desktop or Cursor: 'What does a successful summary cost us?'"]):::input
+    U --> C["Client picks a tool and sends filters: feature · model · from · to"]:::step
+    C --> V{"Filters valid?"}
+    V -- "bad date, or from after to" --> E1(["Tool error: the model can recover"]):::stop
+    V -- yes --> F{"Any calls match?"}
+    F -- no --> E2(["Not an error: lists the features, models and time range that exist"]):::warn
+    F -- yes --> TOOL{"Which tool?"}
+
+    TOOL --> T1["<b>cost_per_outcome</b><br/>cost per request vs per success<br/>retry + failed-request overhead<br/>no outcome field: success = final status ok, flagged as inferred"]:::tool
+    TOOL --> T2["<b>cost_by_feature</b><br/>spend per feature and model<br/>tokens · retrieval · retries<br/>30-day projection"]:::tool
+    TOOL --> T3["<b>top_expensive_calls</b><br/>top N calls by cost<br/>share of spend · input vs median"]:::tool
+    TOOL --> T4["<b>model_swap_whatif</b><br/>re-price observed tokens on target<br/>monthly savings + quality caveat<br/>target not in pricing table: tool error"]:::tool
+
+    T1 --> R
+    T2 --> R
+    T3 --> R
+    T4 --> R["Plain-text report + Note lines: inferred outcomes, unpriced models, skipped rows, sample data, pricing date"]:::step
+    R --> Z(["Client answers you in plain English"]):::input
+```
+
+**Legend:** blue is input or output, green is one of the four tools, amber is a data-quality caveat that appears as a `Note:` line, red is a stop or tool error.
+
+Nothing is written to disk and nothing goes over the network. The only output is the text report sent back to your MCP client over stdio. There is no port to open.
 
 ---
 
@@ -175,6 +204,23 @@ Leave `COST_TRACE_PATH` unset. The server loads the bundled synthetic trace (~50
 | `COST_PRICING_PATH` / `--pricing` | bundled `pricing.json` | Override the pricing table |
 | `COST_PERIOD_DAYS` / `--period-days` | inferred from timestamps | Window used to project monthly figures |
 | `COST_CURRENCY` | `USD` | Display only; no FX conversion |
+
+A flag beats an env var, and an env var beats the default. Relative paths resolve against the current directory, and `~/` expands to your home directory.
+
+```bash
+npx -y cost-per-outcome-mcp --help       # usage and all flags
+npx -y cost-per-outcome-mcp --version    # prints the version (0.1.0)
+
+# Several options together
+npx -y cost-per-outcome-mcp \
+  --trace ~/exports/llm-calls.csv \
+  --pricing ~/exports/my-pricing.json \
+  --period-days 30
+```
+
+The same options work as `args` in a client config, for example `"args": ["-y", "cost-per-outcome-mcp", "--trace", "/abs/path/traces.jsonl"]`. A bad flag, a missing file, a malformed CSV, or a trace with no valid rows exits with code 1 and a one-line error on stderr.
+
+**There is no port to open.** The server speaks MCP over stdio (stdin/stdout), not HTTP, so it never listens on the network.
 
 ---
 
@@ -338,9 +384,23 @@ npm run test:e2e
 # Regenerate the synthetic trace
 npm run gen:sample
 
-# Inspect tools interactively
-npx @modelcontextprotocol/inspector node dist/index.js
+# Run the built server by hand (waits for an MCP client on stdin)
+node dist/index.js --trace ./data/sample-traces.jsonl
 ```
+
+### Inspect the tools
+
+```bash
+# Web UI
+npx @modelcontextprotocol/inspector node dist/index.js --trace ./data/sample-traces.jsonl
+
+# No browser: list tools, or call one, straight from the terminal
+npx @modelcontextprotocol/inspector --cli node dist/index.js --method tools/list
+npx @modelcontextprotocol/inspector --cli node dist/index.js --method tools/call \
+  --tool-name cost_per_outcome --tool-arg feature=summarize
+```
+
+The web UI opens on `http://127.0.0.1:6274` (the Inspector's port; the cost server itself uses none). If the browser doesn't open on its own, which is common over SSH or in an editor terminal, copy the full URL from the terminal output, including the `MCP_INSPECTOR_API_TOKEN=…` part. The token changes on every run. Then click **Connect**, open the **Tools** tab, and click **List Tools**. If the page can't connect, run `npm run build` first, since the Inspector launches `dist/index.js`.
 
 Built with the TypeScript MCP SDK over stdio.
 
