@@ -35,29 +35,42 @@ The gap between those two numbers is usually where the savings are. This server 
 | `top_expensive_calls` | Which calls are bloated? | The N most expensive calls, with input token size and share of total spend |
 | `model_swap_whatif` | What if we switch models? | Estimated monthly savings for moving feature X from model A to model B |
 
-All four tools accept optional `feature`, `model`, `from`, and `to` filters.
+All four tools accept optional `feature`, `model`, `from`, and `to` filters. `from` is inclusive, `to` is exclusive, and a plain date like `2026-09-30` covers that whole day.
+
+Two tools take extra arguments:
+
+| Tool | Extra arguments |
+|---|---|
+| `top_expensive_calls` | `n`: how many calls to return (default 10, max 100) |
+| `model_swap_whatif` | `feature` (required), `target_model` (required, must be in the pricing table), `model` (optional: the model to move away from; default is every model the feature uses except the target) |
+
+Mistakes such as a bad date or an unknown target model come back as a tool error with a message the model can act on. A filter that matches nothing is not an error: the reply lists the features, models and time range that do exist.
 
 ### `cost_per_outcome` — the one to run first
 
-```
+```text
 > What does a successful summary cost us?
 
-Feature: summarize   (synthetic sample, 30 days)
-─────────────────────────────────────────────────
-Requests                 180
-Calls (incl. retries)    214     +34 retry calls
-Successful outcomes      151     83.9%
-Total spend              $4.32
+Feature: summarize   (29.7 days)
+─────────────────────────────────────────────────────────
+Requests                 120
+Calls (incl. retries)    140       +20 retry calls
+Successful outcomes      107       89.2%
+Total spend              $3.43
 
-Cost per request         $0.0240
-Cost per success         $0.0286   ← +19% vs per-request
+Cost per request         $0.0286
+Cost per success         $0.0321   ← +12% vs per-request
 
 Overhead breakdown
-  Retries                $0.61   14%
-  Failed requests        $0.69   16%
+  Retries                $0.49     14%
+  Failed requests        $0.37     11%
 ```
 
-Cost per request says $0.024. What you actually pay for a summary that works is $0.0286. That 19% is spend with nothing to show for it.
+This is the real output on the bundled synthetic sample, so the zero-config demo shows exactly this.
+
+Cost per request says $0.0286. What you actually pay for a summary that works is $0.0321. That 12% is spend with nothing to show for it.
+
+The report also ends with `Note:` lines for data-quality caveats: outcomes that were inferred, models missing from the pricing table, skipped rows, and the pricing date.
 
 ### `model_swap_whatif`
 
@@ -140,6 +153,8 @@ Add to `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` globally):
 }
 ```
 
+Relative paths resolve against the server's working directory, which depends on the client. Prefer an absolute path or `~/…`.
+
 ### Try it without your own data
 
 Leave `COST_TRACE_PATH` unset. The server loads the bundled synthetic trace (~500 calls across 4 features, 3 models, with realistic retry and failure rates).
@@ -202,9 +217,11 @@ Every call is split into the same three **cost layers** I use in audits:
 
 | Layer | Source |
 |---|---|
-| **Tokens** | `input_tokens`, `cached_input_tokens`, `output_tokens` × pricing table |
-| **Retrieval** | `retrieval_cost_usd` (0 if absent) |
+| **Tokens** | `input_tokens`, `cached_input_tokens`, `output_tokens` × pricing table, for first attempts |
+| **Retrieval** | `retrieval_cost_usd` (0 if absent), for first attempts |
 | **Retries** | Full cost of every call where `attempt > 1` |
+
+The layers don't overlap, and they add up to total spend.
 
 Then:
 
@@ -215,6 +232,20 @@ overhead_pct     = cost_per_success / cost_per_request − 1
 ```
 
 The numerator is the same in both. Failed and retried spend is **not** dropped; it's spread across the requests that worked, because that's what you actually paid for them.
+
+The overhead breakdown in `cost_per_outcome` is also non-overlapping: **Retries** is the cost of `attempt > 1` calls inside successful requests, and **Failed requests** is the full cost of every call in requests that failed.
+
+### Edge cases
+
+- `input_tokens` includes `cached_input_tokens`; only the remainder is billed at the full input rate. A row where cached tokens exceed input tokens is invalid.
+- Models without a `cached_input` price bill cached tokens at the input rate.
+- `cost_usd` replaces the computed token cost; `retrieval_cost_usd` is still added on top.
+- If `attempt` is missing, calls are numbered 1..n within each `request_id` by `ts` (file order breaks ties). Numbering happens once over the whole trace, before any filter, so filters never renumber attempts.
+- `from` is inclusive and `to` is exclusive; a plain date for `to` covers that whole day.
+- Monthly figures are observed cost × `30 / period days`. The period is `--period-days` if set; otherwise it is the span of the trace inside `from`/`to`, ignoring `feature` and `model` filters so a sparse feature isn't over-projected.
+- Invalid rows are skipped and counted, never silently dropped. Reports show the count and the first error. A missing or unreadable file, a malformed CSV, or a file with no valid rows stops the server at startup.
+- `model_swap_whatif` compares token cost only, because retrieval cost doesn't change with the model. Calls on models missing from the pricing table are left out and counted.
+- Calls on models missing from the pricing table get a token cost of 0 and are flagged in every report, never priced silently.
 
 ---
 
@@ -292,6 +323,11 @@ cd cost-per-outcome-mcp
 npm install
 npm run build
 npm run dev -- --trace ./data/sample-traces.jsonl
+
+# Typecheck, unit tests, and end-to-end tests over real stdio
+npm run typecheck
+npm test
+npm run test:e2e
 
 # Regenerate the synthetic trace
 npm run gen:sample
